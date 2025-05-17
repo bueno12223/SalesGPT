@@ -1,5 +1,6 @@
 import json
 import os
+import datetime
 
 import boto3
 import requests
@@ -14,8 +15,10 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+SCHEDULES_PATH = "schedules.json"
+
 def setup_knowledge_base(
-    product_catalog: str = None, model_name: str = "gpt-3.5-turbo"
+    product_catalog: str = None, model_name: str = "openai/gpt-4o"
 ):
     """
     We assume that the product catalog is simply a text string.
@@ -27,7 +30,7 @@ def setup_knowledge_base(
     text_splitter = CharacterTextSplitter(chunk_size=5000, chunk_overlap=200)
     texts = text_splitter.split_text(product_catalog)
 
-    llm = ChatOpenAI(model_name="gpt-4-0125-preview", temperature=0)
+    llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
 
     embeddings = OpenAIEmbeddings()
     docsearch = Chroma.from_texts(
@@ -101,7 +104,7 @@ def get_product_id_from_query(query, product_price_id_mapping_path):
     Return a valid directly parsable json, dont return in it within a code snippet or add any kind of explanation!!
     """
     prompt += "{"
-    model_name = os.getenv("GPT_MODEL", "gpt-3.5-turbo-1106")
+    model_name = os.getenv("GPT_MODEL", "gpt-o4-mini")
 
     if "anthropic" in model_name:
         response = completion_bedrock(
@@ -163,7 +166,7 @@ def get_mail_body_subject_from_query(query):
     Now, based on the provided query, return the structured information as described.
     Return a valid directly parsable json, dont return in it within a code snippet or add any kind of explanation!!
     """
-    model_name = os.getenv("GPT_MODEL", "gpt-3.5-turbo-1106")
+    model_name = os.getenv("GPT_MODEL", "gpt-o4-mini")
 
     if "anthropic" in model_name:
         response = completion_bedrock(
@@ -244,6 +247,53 @@ def generate_calendly_invitation_link(query):
         return f"url: {data['resource']['booking_url']}"
     else:
         return "Failed to create Calendly link: "
+    
+def get_today_schedule(query):
+    """
+    Devuelve un string con las horas agendadas para el día actual.
+    """
+    now = datetime.datetime.now()
+    current_date = now.strftime("%Y-%m-%d")
+
+    # Carga o crea schedules.json
+    if os.path.exists(SCHEDULES_PATH):
+        with open(SCHEDULES_PATH, "r") as f:
+            schedules = json.load(f)
+    else:
+        schedules = {}
+
+    scheduled_hours = schedules.get(current_date, [])
+    if not scheduled_hours:
+        return f"No tienes horas agendadas para {current_date}."
+    hours_str = ", ".join(scheduled_hours)
+    return f"Horas agendadas para {current_date}: {hours_str}, las horas para agendar nuevas llamadas son de 9:00 a 8:00pm., lunes a domingo. La hora actual es {now.strftime('%H:%M')}." \
+
+def add_hour_to_schedule(time):
+    """
+    Añade la hora MM:HH al schedule de hoy y devuelve el string actualizado.
+    """
+    hour, minute = map(int, time.split(":"))
+    now = datetime.datetime.now()
+    current_date = now.strftime("%Y-%m-%d")
+    time = f"{hour:02d}:{minute:02d}"
+
+    if os.path.exists(SCHEDULES_PATH):
+        with open(SCHEDULES_PATH, "r") as f:
+            schedules = json.load(f)
+    else:
+        schedules = {}
+
+    if current_date not in schedules:
+        schedules[current_date] = []
+
+    if time not in schedules[current_date]:
+        schedules[current_date].append(time)
+        schedules[current_date].sort()
+
+        with open(SCHEDULES_PATH, "w") as f:
+            json.dump(schedules, f, indent=4)
+
+    return f"Se ha agendado la llamada para {time} el {current_date}. Las horas agendadas son: {', '.join(schedules[current_date])}."
 
 def get_tools(product_catalog):
     # query to get_tools can be used to be embedded and relevant tools found
@@ -253,26 +303,36 @@ def get_tools(product_catalog):
     knowledge_base = setup_knowledge_base(product_catalog)
     tools = [
         Tool(
-            name="ProductSearch",
-            func=knowledge_base.run,
-            description="useful for when you need to answer questions about product information or services offered, availability and their costs.",
+            name="AvailableSpots",
+            func=get_today_schedule,
+            description="Useful for when you need to know the available time slots for today. Returns a list scheduled calls for today. Just input a empty string this tool NOT schedules calls. you need to use ScheduleCall tool for that.",
         ),
         Tool(
-            name="GeneratePaymentLink",
-            func=generate_stripe_payment_link,
-            description="useful to close a transaction with a customer. You need to include product name and quantity and customer name in the query input.",
+            name="ScheduleCall",
+            func=add_hour_to_schedule,
+            description="Schedules a call for the user. The query should specify the hour and minute of the call always in the format HH:MM.",
         ),
-        Tool(
-            name="SendEmail",
-            func=send_email_tool,
-            description="Sends an email based on the query input. The query should specify the recipient, subject, and body of the email.",
-        ),
-        Tool(
-            name="SendCalendlyInvitation",
-            func=generate_calendly_invitation_link,
-            description='''Useful for when you need to create invite for a personal meeting in Sleep Heaven shop. 
-            Sends a calendly invitation based on the query input.''',
-        )
+        # Tool(
+        #     name="ProductSearch",
+        #     func=knowledge_base.run,
+        #     description="useful for when you need to answer questions about product information or services offered, availability and their costs.",
+        # ),
+        # Tool(
+        #     name="GeneratePaymentLink",
+        #     func=generate_stripe_payment_link,
+        #     description="useful to close a transaction with a customer. You need to include product name and quantity and customer name in the query input.",
+        # ),
+        # Tool(
+        #     name="SendEmail",
+        #     func=send_email_tool,
+        #     description="Sends an email based on the query input. The query should specify the recipient, subject, and body of the email.",
+        # ),
+        # Tool(
+        #     name="SendCalendlyInvitation",
+        #     func=generate_calendly_invitation_link,
+        #     description='''Useful for when you need to create invite for a personal meetings. 
+        #     Sends a calendly invitation based on the query input.''',
+        # )
     ]
 
     return tools

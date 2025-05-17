@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from salesgpt.salesgptapi import SalesGPTAPI
+from whatsapp_api_client_python import API as WhatsAppAPI
 
 # Load environment variables
 load_dotenv()
@@ -69,8 +70,9 @@ async def get_bot_name(authorization: Optional[str] = Header(None)):
         product_catalog=os.getenv(
             "PRODUCT_CATALOG", "examples/sample_product_catalog.txt"
         ),
+        use_tools=False,
         verbose=True,
-        model_name=os.getenv("GPT_MODEL", "gpt-3.5-turbo-0613"),
+        model_name=os.getenv("GPT_MODEL", "gpt-o4-mini"),
     )
     name = sales_api.sales_agent.salesperson_name
     return {"name": name, "model": sales_api.sales_agent.model_name}
@@ -110,7 +112,7 @@ async def chat_with_sales_agent(req: MessageList, stream: bool = Query(False), a
             product_catalog=os.getenv(
                 "PRODUCT_CATALOG", "examples/sample_product_catalog.txt"
             ),
-            model_name=os.getenv("GPT_MODEL", "gpt-3.5-turbo-0613"),
+            model_name=os.getenv("GPT_MODEL", "gpt-o4-mini"),
             use_tools=os.getenv("USE_TOOLS_IN_API", "True").lower()
             in ["true", "1", "t"],
         )
@@ -132,6 +134,24 @@ async def chat_with_sales_agent(req: MessageList, stream: bool = Query(False), a
         return response
 
 
-# Main entry point
+# Configuración de WhatsApp API
+whatsapp_api = WhatsAppAPI(base_url=os.getenv("WHATSAPP_API_URL"), token=os.getenv("WHATSAPP_API_TOKEN"))
+
+@app.post("/whatsapp-webhook")
+async def whatsapp_webhook(payload: dict):
+    message = payload.get("messages", [])[0]
+    sender = message.get("from")
+    text = message.get("text", {}).get("body")
+
+    if not text:
+        return {"status": "No text found in the message"}
+
+    response = await chat_with_sales_agent(MessageList(session_id=sender, human_say=text))
+
+    whatsapp_api.send_message(to=sender, text=response.get("message", ""))
+
+    return {"status": "Message processed"}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -3,7 +3,6 @@ import json
 import re
 
 from langchain_community.chat_models import BedrockChat, ChatLiteLLM
-from langchain_openai import ChatOpenAI
 
 from salesgpt.agents import SalesGPT
 from salesgpt.models import BedrockCustomModel
@@ -15,9 +14,9 @@ class SalesGPTAPI:
         config_path: str,
         verbose: bool = True,
         max_num_turns: int = 20,
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "gpt-o4-mini",
         product_catalog: str = "examples/sample_product_catalog.txt",
-        use_tools=True,
+        use_tools=False,
     ):
         self.config_path = config_path
         self.verbose = verbose

@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 services:
   frontend:
     build:
@@ -9,15 +9,13 @@ services:
     container_name: frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-    env_file:  # Added line for specifying an environment file
-      - .env.fe  # Specifying the .env.fe file
     ports:
       - "3000:3000"
     depends_on:
       - backend
     stdin_open: true
     tty: true
-    
+
   backend:
     build:
       context: ./
@@ -29,4 +27,3 @@ services:
       - .env
     ports:
       - "8000:8000"
-    # Removed the ports section from backend as it is not allowed in build context
